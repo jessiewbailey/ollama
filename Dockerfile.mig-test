@@ -1,0 +1,31 @@
+# Lightweight Dockerfile for testing the MIG fix
+# Builds only the Go binary and uses pre-built CUDA libraries from the official image
+#
+# Since the fix is in Go code (ml/device.go), we don't need to rebuild the C++ backends
+
+ARG OLLAMA_VERSION=latest
+
+# Stage 1: Build the Go binary
+FROM golang:1.24-bookworm AS builder
+
+WORKDIR /build
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and build
+COPY . .
+RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o ollama .
+
+# Stage 2: Use official image as base (has pre-built CUDA libraries)
+FROM ollama/ollama:${OLLAMA_VERSION}
+
+# Replace only the ollama binary with our patched version
+COPY --from=builder /build/ollama /bin/ollama
+
+# Same defaults as official image
+ENV OLLAMA_HOST=0.0.0.0:11434
+EXPOSE 11434
+ENTRYPOINT ["/bin/ollama"]
+CMD ["serve"]
